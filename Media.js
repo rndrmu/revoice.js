@@ -49,7 +49,7 @@ class Media {
   }
   playStream(stream) {
     if (!stream) throw "You must specify a stream to play!";
-    stream.pipe(this.ffmpeg.stdin);
+    this.spawnFFmpeg(stream);
   }
 }
 
