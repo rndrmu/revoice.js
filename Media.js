@@ -149,6 +149,7 @@ class MediaPlayer {
     });
     stream.on("end", () => {
       this.streamFinished = true;
+      console.log("stream finished");
     });
     stream.on("error", (e) => {
       this.streamFinished = true;

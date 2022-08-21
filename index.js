@@ -1,6 +1,6 @@
-const Media = require("./Media.js");
-const Revoice = require("./Revoice.js");
-const Signaling = require("./Signaling.js");
+import Media from "./Media.js";
+import Revoice from "./Revoice.js";
+import Signaling from "./Signaling.js";
 
 module.exports = {
   ...Media, Revoice, Signaling
