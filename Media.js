@@ -26,7 +26,7 @@ class Media {
 
     return this;
   }
-  spawnFFmpeg(input, port = this.port) {
+  spawnFFmpeg(input, port = 5030) {
     return require("child_process").spawn("ffmpeg", [
       "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:" + port
     ])
