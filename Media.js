@@ -14,10 +14,7 @@ class Media {
     this.port = port;
     this.logs = logs;
     this.playing = false;
-
-    this.ffmpeg = require("child_process").spawn("ffmpeg", [
-      "-re", "-i", "-", "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:" + port
-    ]);
+    this.ffmpeg = this.spawnFFmpeg();
     if (logs) {
       this.ffmpeg.stdout.on("data", (data) => {
         console.log(Buffer.from(data).toString());
@@ -29,15 +26,14 @@ class Media {
 
     return this;
   }
-  on(event, cb) {
-    return "Unimplemented";
-  }
-  once(event, cb) {
-    return "Unimplemented";
-  }
+  spawnFFmpeg(input) {
+    return require("child_process").spawn("ffmpeg", [
+      "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:" + port
+    ])
+  } 
 
-  createFfmpegArgs(start="00:00:00") {
-    return ["-re", "-i", "-", "-ss", start, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:" + this.port]
+  createFfmpegArgs(start="00:00:00", input) {
+    return ["-re", "-i", input, "-ss", start, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:" + this.port]
   }
   getMediaTrack() {
     return this.track;
