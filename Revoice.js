@@ -101,9 +101,9 @@ class Revoice {
   async play(media) {
     this.updateState(((media.track) ? Revoice.State.UNKNOWN : Revoice.State.PLAYING));
     this.media = media;
-    this.media.on("finish", () => {
+    /* this.media.on("finish", () => {
       this.updateState(Revoice.State.IDLE);
-    });
+    }); */
     const track = (media.track) ? media.track : media.media.track; // second case for audioplayer
     return await this.sendTransport.produce({ track: track, appData: { type: "audio" } }); // rtpProducer
   }
