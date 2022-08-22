@@ -36,5 +36,8 @@
     "revolt-api": "^0.5.5",
     "ws": "^8.8.1",
     "yt-dlp-wrap": "^2.3.11"
+  },
+  "devDependencies": {
+    "@types/node": "^18.7.9"
   }
 }
