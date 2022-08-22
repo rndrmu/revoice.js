@@ -1,7 +1,7 @@
 const { MediaStreamTrack } = require("msc-node");
 const EventEmitter = require("events");
 const fs = require("fs");
-
+const YTDlpWrap = require('yt-dlp-wrap').default;
 class Media {
   constructor(logs=false, port=5030) {
     this.track = new MediaStreamTrack({ kind: "audio" });
@@ -10,6 +10,9 @@ class Media {
     this.socket.addListener("message", (data) => {
       this.track.writeRtp(data);
     });
+    this.emitter = new EventEmitter();
+
+    
 
     this.port = port;
     this.logs = logs;
@@ -26,10 +29,23 @@ class Media {
 
     return this;
   }
+
+  on(event, cb) {
+   return this.emitter.on(event, cb);
+  }
+  once(event, cb) {
+    return this.emitter.once(event, cb);
+  }
+  emit(event, data) {
+    return this.emitter.emit(event, data);
+  }
+
   spawnFFmpeg(input, port = 5030) {
+    this.playing = true;
     return require("child_process").spawn("ffmpeg", [
       "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
     ])
+    // after the transcoding is done, set the playing flag to false
   } 
 
   createFfmpegArgs(start="00:00:00", input) {
@@ -50,6 +66,18 @@ class Media {
   playStream(stream) {
     if (!stream) throw "You must specify a stream to play!";
     this.spawnFFmpeg(stream);
+  }
+
+  async getYouTubeStream(url) {
+    const ytdlp = new YTDlpWrap("yt-dlp");
+    const metadata = await ytdlp.getVideoInfo(url)
+    return metadata.url
+  }
+
+  async playYTStream(url) {
+    if (!url) throw "You must specify a youtube stream to play!";
+
+    this.spawnFFmpeg(await this.getYouTubeStream(url));
   }
 }
 
@@ -139,25 +167,16 @@ class MediaPlayer {
     this.playing = true;
     this.streamFinished = false;
 
-    this.emit("start");
+    this.media.emit("start");
+    console.log("Starting stream");
 
-    stream.on("data", (chunk) => {
-      if (!chunk) return;
-      this.currBuffer = Buffer.concat([ this.currBuffer, Buffer.from(chunk) ]);
-      if (this.paused) return;
-      this.media.writeStreamChunk(chunk);
-    });
-    stream.on("end", () => {
-      this.streamFinished = true;
-      console.log("stream finished");
-    });
-    stream.on("error", (e) => {
-      this.streamFinished = true;
-      console.log("Audio source stream error: ", e);
-    });
 
     // ffmpeg stuff
     this.#setupFmpeg();
+
+    console.log("Stream ended");
+    this.media.playing = false;
+    this.media.emit("end");
   }
   #setupFmpeg() {
     this.media.ffmpeg.stderr.on("data", (chunk) => {
@@ -186,12 +205,12 @@ class MediaPlayer {
       }
     });
     this.media.ffmpeg.stdout.on("data", (chunk) => {
-      if (this.logs) console.log("OUT", Buffer.from(chunk().toString()));
+      console.log("OUT", Buffer.from(chunk().toString()));
     });
     this.media.ffmpeg.stdout.on("end", () => {
       this.playing = false;
-      if (this.logs) console.log("finished");
-      this.emit("finish");
+      console.log("finished");
+      this.media.emitter.emit("finish");
     });
     this.media.ffmpeg.stdout.on("readable", () => {
       if (this.logs) console.log("readable")
