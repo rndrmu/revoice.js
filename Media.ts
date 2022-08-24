@@ -1,15 +1,23 @@
-// @ts-nocheck
-
-const { MediaStreamTrack } = require("msc-node");
-const EventEmitter = require("events");
-const fs = require("fs");
-const YTDlpWrap = require('yt-dlp-wrap').default;
 
 
+import { MediaStreamTrack } from "msc-node";
+import { EventEmitter } from "node:events";
+import * as fs from "node:fs";
+import YTDlpWrap from "./node_modules/yt-dlp-wrap/dist/index";
+import { spawn } from "child_process";
+import { createSocket, Socket } from "dgram";
+import { ChildProcessWithoutNullStreams } from "node:child_process";
 class Media {
+  track: MediaStreamTrack;
+  socket: Socket;
+  emitter: EventEmitter;
+  port: number;
+  logs: boolean;
+  playing: boolean;
+  ffmpeg: ChildProcessWithoutNullStreams;
   constructor(logs=false, port=5030) {
     this.track = new MediaStreamTrack({ kind: "audio" });
-    this.socket = require("dgram").createSocket("udp4");
+    this.socket = createSocket("udp4");
     this.socket.bind(port);
     this.socket.addListener("message", (data) => {
       this.track.writeRtp(data);
@@ -21,7 +29,9 @@ class Media {
     this.port = port;
     this.logs = logs;
     this.playing = false;
-    this.ffmpeg = this.spawnFFmpeg();
+    this.ffmpeg = spawn("ffmpeg", [
+      "-re", "-i", "-", "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
+    ]);
     if (logs) {
       this.ffmpeg.stdout.on("data", (data) => {
         console.log(Buffer.from(data).toString());
@@ -30,6 +40,14 @@ class Media {
         console.log(Buffer.from(data).toString());
       });
     }
+
+    this.ffmpeg.on("close", (code) => {
+      if (code == 0) {
+        this.emitter.emit("finish");
+        this.emitter.emit("end");
+        console.log("FFmpeg exited with code 0 - Constructor");
+      } 
+    })
 
     return this;
   }
@@ -44,11 +62,19 @@ class Media {
     return this.emitter.emit(event, data);
   }
 
-  spawnFFmpeg(input, port = 5030) {
+  spawnFFmpeg(input?, port = 5030) {
     this.playing = true;
-    return require("child_process").spawn("ffmpeg", [
+    const ffmpeg_proc = spawn("ffmpeg", [
       "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
-    ])
+    ]).on("close", (code) => {
+      if (code == 0) {
+        this.playing = false;
+        this.emitter.emit("end");
+        console.log("FFmpeg exited with code 0");
+      }
+    })
+
+    return ffmpeg_proc;
     // after the transcoding is done, set the playing flag to false
   } 
 
@@ -63,10 +89,10 @@ class Media {
     const stream = fs.createReadStream(path);
     stream.pipe(this.ffmpeg.stdin);
   }
-  writeStreamChunk(chunk) {
+ /*  writeStreamChunk(chunk) {
     if (!chunk) throw "You must pass a chunk to be written into the stream";
     this.ffmpeg.stdin.write(chunk);
-  }
+  } */
   playStream(stream) {
     if (!stream) throw "You must specify a stream to play!";
     this.spawnFFmpeg(stream);
@@ -80,12 +106,25 @@ class Media {
 
   async playYTStream(url) {
     if (!url) throw "You must specify a youtube stream to play!";
+    if (!this.track) this.track = new MediaStreamTrack({ kind: "audio" });
 
     this.spawnFFmpeg(await this.getYouTubeStream(url));
   }
 }
 
 class MediaPlayer {
+
+  media;
+  paused;
+  emitter;
+  currTime;
+  streamFinished;
+  finishTimeout;
+  currBuffer;
+  logs;
+  originStream;
+  playing;
+
   constructor(logs=false, port=5030) {
     this.media = new Media(logs, port);
 
@@ -95,7 +134,8 @@ class MediaPlayer {
     this.currTime = null;
     this.streamFinished = false;
     this.finishTimeout = null;
-    this.currBuffer = new Buffer([]);
+    // resizeable array buffer
+    this.currBuffer = Buffer.alloc(0);
     this.logs = logs;
 
     return this;
@@ -106,11 +146,12 @@ class MediaPlayer {
   once(event, cb) {
     return this.emitter.once(event, cb);
   }
-  emit(event, data) {
+  emit(event, data?) {
     return this.emitter.emit(event, data);
   }
 
   static timestampToSeconds(timestamp="00:00:00", ceilMinutes=false) {
+    //@ts-ignore
     timestamp = timestamp.split(":").map((el, index) => {
       if (index < 2) {
         return parseInt(el);
@@ -121,21 +162,20 @@ class MediaPlayer {
     const hours = timestamp[0];
     const minutes = timestamp[1];
     const currSeconds = timestamp[2];
+    //@ts-ignore
     return (hours * 60 * 60) + (minutes * 60) + currSeconds; // convert everything to seconds
   }
 
   disconnect(destroy=true) { // this should be called on leave
     if (destroy) this.media.track = null; // clean up the current data and streams
-    this.originStream.destroy();
+    //this.originStream.destroy();
     this.paused = false;
     this.media.ffmpeg.kill();
     this.currBuffer = null;
     this.streamFinished = true;
     this.currTime = "00:00:00";
 
-    this.media.ffmpeg = require("child_process").spawn("ffmpeg", [ // set up new ffmpeg instance
-      ...this.media.createFfmpegArgs()
-    ]);
+    //this.media.ffmpeg = this.setupFmpeg();
   }
   cleanUp() { // TODO: similar to disconnect() but doesn't kill existing processes
     this.paused = false;
@@ -149,10 +189,8 @@ class MediaPlayer {
   }
   resume() {
     if (!this.paused) return;
-    this.media.ffmpeg = require("child_process").spawn("ffmpeg", [
-      ...this.media.createFfmpegArgs(this.currTime)
-    ]);
-    this.#setupFmpeg();
+
+    this.media.spawnFFmpeg();
     this.media.writeStreamChunk(this.currBuffer);
     this.paused = false;
   }
@@ -163,11 +201,25 @@ class MediaPlayer {
   getMediaTrack() {
     this.media.getMediaTrack();
   }
+
+  async getYouTubeStream(url) {
+    const ytdlp = new YTDlpWrap("yt-dlp");
+    const metadata = await ytdlp.getVideoInfo(url)
+    return metadata.url
+  }
+
+  async playYTStream(url) {
+    if (!url) throw "You must specify a youtube stream to play!";
+    if (!this.media.track) this.media.track = new MediaStreamTrack({ kind: "audio" });
+
+    this.media.spawnFFmpeg(await this.getYouTubeStream(url));
+  }
+
   playStream(stream) {
     if (!this.media.track) this.media.track = new MediaStreamTrack({ kind: "audio" });
 
     this.originStream = stream;
-    this.currBuffer = new Buffer([]);
+    this.currBuffer = Buffer.alloc(0);
     this.playing = true;
     this.streamFinished = false;
 
@@ -176,15 +228,15 @@ class MediaPlayer {
 
 
     // ffmpeg stuff
-    this.#setupFmpeg();
+    this.setupFmpeg();
 
     console.log("Stream ended");
     this.media.playing = false;
     this.media.emit("end");
   }
-  #setupFmpeg() {
+  setupFmpeg() {
     this.media.ffmpeg.stderr.on("data", (chunk) => {
-      if (this.logs) console.log("err", Buffer.from(chunk).toString());
+      console.log("err", Buffer.from(chunk).toString());
       chunk = Buffer.from(chunk).toString(); // parse to string
       if (chunk.includes("time")) {  // get the current seek pos
         chunk = chunk.split(" ").map(el => el.trim()); // split by spaces and trim the items; useful for next step
