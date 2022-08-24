@@ -114,16 +114,16 @@ class Media {
 
 class MediaPlayer {
 
-  media;
-  paused;
-  emitter;
-  currTime;
-  streamFinished;
-  finishTimeout;
-  currBuffer;
-  logs;
-  originStream;
-  playing;
+  media: Media;
+  paused: boolean;
+  emitter: EventEmitter;
+  currTime: string;
+  streamFinished: boolean;
+  finishTimeout: NodeJS.Timeout;
+  currBuffer: Buffer;
+  logs: boolean;
+  originStream: fs.ReadStream;
+  playing:  boolean;
 
   constructor(logs=false, port=5030) {
     this.media = new Media(logs, port);
@@ -191,7 +191,7 @@ class MediaPlayer {
     if (!this.paused) return;
 
     this.media.spawnFFmpeg();
-    this.media.writeStreamChunk(this.currBuffer);
+    //this.media.writeStreamChunk(this.currBuffer);
     this.paused = false;
   }
   stop() { // basically the same as process on disconnect
@@ -223,7 +223,7 @@ class MediaPlayer {
     this.playing = true;
     this.streamFinished = false;
 
-    this.media.emit("start");
+    this.emit("start");
     console.log("Starting stream");
 
 
@@ -232,7 +232,7 @@ class MediaPlayer {
 
     console.log("Stream ended");
     this.media.playing = false;
-    this.media.emit("end");
+    this.emit("end");
   }
   setupFmpeg() {
     this.media.ffmpeg.stderr.on("data", (chunk) => {
@@ -272,7 +272,6 @@ class MediaPlayer {
       if (this.logs) console.log("readable")
     });
     this.media.ffmpeg.stdin.on("error", (e) => {
-      if (e.code == "EOF" || e.code == "EPIPE") return;
       console.log("Media; ffmpeg; stdin: ");
       throw e
     });
