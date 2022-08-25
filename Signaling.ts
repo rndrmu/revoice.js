@@ -125,6 +125,28 @@ class Signaling {
       })
     });
   }
+
+  stopProduce(type) {
+    return new Promise((res, rej) => {
+      const request = {
+        id: ++this.currId,
+        type: "StopProduce",
+        data: {
+          type: type,
+        }
+      };
+      this.ws.send(JSON.stringify(request));
+      this.on("StartProduce", (data) => {
+        if (data.id !== request.id) return;
+        res(data.data.producerId);
+      })
+    });
+  }
+
+  async startStopProduce(type, params) {
+    await this.stopProduce(type)
+    await this.startProduce(type, params)
+  }
 }
 
 export default Signaling;

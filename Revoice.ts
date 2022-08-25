@@ -43,6 +43,7 @@ class Revoice {
     this.media = null;
 
     this.state = Revoice.State.OFFLINE;
+    this.rtpCodecParameters = null;
 
     return this;
   }
@@ -92,6 +93,7 @@ class Revoice {
       this.signaling.connectTransport(sendTransport.id, dtlsParameters).then(callback);
     });
     sendTransport.on("produce", (parameters, callback) => {
+      this.rtpCodecParameters = parameters.rtpParameters;
       this.signaling.startProduce("audio", parameters.rtpParameters).then((id) => {
         callback({ id });
       });
@@ -103,9 +105,12 @@ class Revoice {
   async play(media) {
     this.updateState(Revoice.State.PLAYING);
     this.media = media;
-    this.media.on("finish", () => {
+    this.media.on("finish", async () => {
       console.log("finished playing");
       this.updateState(Revoice.State.IDLE);
+      // restart the producer
+     // await this.signaling.startStopProduce("audio", this.rtpCodecParameters);
+
     });
     const track = (media.track) ? media.track : media.media.track; // second case for audioplayer
     return await this.sendTransport.produce({ track: track, appData: { type: "audio" } });

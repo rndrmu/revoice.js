@@ -7,32 +7,36 @@ import YTDlpWrap from "./node_modules/yt-dlp-wrap/dist/index";
 import { spawn } from "child_process";
 import { createSocket, Socket } from "dgram";
 import { ChildProcessWithoutNullStreams } from "node:child_process";
+
+
+
 class Media {
-  track: MediaStreamTrack;
+  track: MediaStreamTrack | null;
   socket: Socket;
   emitter: EventEmitter;
   port: number;
   logs: boolean;
   playing: boolean;
+  // function returning a process handle
   ffmpeg: ChildProcessWithoutNullStreams;
+
   constructor(logs=false, port=5030) {
     this.track = new MediaStreamTrack({ kind: "audio" });
     this.socket = createSocket("udp4");
     this.socket.bind(port);
     this.socket.addListener("message", (data) => {
-      this.track.writeRtp(data);
+      this.track?.writeRtp(data);
     });
     this.emitter = new EventEmitter();
-
     
 
     this.port = port;
     this.logs = logs;
     this.playing = false;
-    this.ffmpeg = spawn("ffmpeg", [
-      "-re", "-i", "-", "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
-    ]);
-    if (logs) {
+    this.ffmpeg = this.spawnFFmpeg();
+    
+    
+   /*  if (logs) {
       this.ffmpeg.stdout.on("data", (data) => {
         console.log(Buffer.from(data).toString());
       })
@@ -47,7 +51,7 @@ class Media {
         this.emitter.emit("end");
         console.log("FFmpeg exited with code 0 - Constructor");
       } 
-    })
+    }) */
 
     return this;
   }
@@ -62,7 +66,7 @@ class Media {
     return this.emitter.emit(event, data);
   }
 
-  spawnFFmpeg(input?, port = 5030) {
+  spawnFFmpeg(input?, port = 5030): ChildProcessWithoutNullStreams {
     this.playing = true;
     const ffmpeg_proc = spawn("ffmpeg", [
       "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
@@ -112,24 +116,27 @@ class Media {
   }
 }
 
+
+
 class MediaPlayer {
 
   media: Media;
   paused: boolean;
   emitter: EventEmitter;
-  currTime: string;
+  currTime: string | null;
   streamFinished: boolean;
-  finishTimeout: NodeJS.Timeout;
-  currBuffer: Buffer;
+  finishTimeout: NodeJS.Timeout | null;
+  currBuffer: Buffer | null;
   logs: boolean;
-  originStream: fs.ReadStream;
+  originStream: fs.ReadStream | null;
   playing:  boolean;
 
   constructor(logs=false, port=5030) {
     this.media = new Media(logs, port);
 
     this.emitter = new EventEmitter();
-
+    this.originStream = null;
+    this.playing = false;
     this.paused = false;
     this.currTime = null;
     this.streamFinished = false;
