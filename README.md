@@ -47,6 +47,46 @@ revoice.on("join", () => {
 });
 ```
 
+Example With Queue
+```js
+
+const revoice = new Revoice(BOT_TOKEN);
+revoice.join(VOICE_CHANNEL_ID);
+
+
+revoice.on("join", async () => {
+  const media = new MediaPlayer();
+  media.playYTStream(TEST_QUEUE.shift());
+  console.log(TEST_QUEUE);
+  //media.media.playStream(fs.createReadStream("/home/me/audio/lost_soul.mp3"));
+
+
+  revoice.play(media);
+
+
+  media.media.emitter.on("end", async () => {
+    if (TEST_QUEUE.length > 0) {
+        console.log("next");
+       // media.media.flushSocket(); // reset buffer
+        // we do a little 
+        //@ts-ignore
+        console.log(revoice.rtpCodecParameters);
+        //@ts-ignore
+        revoice.signaling.stopProduce("audio");
+        //@ts-ignore
+        revoice.signaling.startProduce("audio", revoice.rtpCodecParameters);
+
+        media.playYTStream(TEST_QUEUE.shift());
+    } else {
+        console.log("last song has finished, exiting");
+        //revoice.disconnect();
+        //@ts-ignore
+        revoice.signaling.stopProduce("audio");
+    }
+  });
+
+```
+
 ### Rejoice for Revoice!<!--lol-->
 
 ## API
