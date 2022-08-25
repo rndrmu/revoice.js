@@ -48,6 +48,7 @@ revoice.on("join", () => {
 ```
 
 Example With Queue
+Please note, that currently the `playYTStream()` method requires [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) to be installed on your PC.
 ```js
 
 const revoice = new Revoice(BOT_TOKEN);
