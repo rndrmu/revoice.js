@@ -4,7 +4,6 @@ import { MediaStreamTrack } from "msc-node";
 import { EventEmitter } from "node:events";
 import * as fs from "node:fs";
 import YTDlpWrap from "./node_modules/yt-dlp-wrap/dist/index";
-import { spawn } from "child_process";
 import { createSocket, Socket } from "dgram";
 import { ChildProcess, ChildProcessWithoutNullStreams, exec } from "node:child_process";
 
@@ -258,3 +257,4 @@ class MediaPlayer {
 }
 
 export { MediaPlayer, Media };
+
