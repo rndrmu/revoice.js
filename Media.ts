@@ -6,8 +6,7 @@ import * as fs from "node:fs";
 import YTDlpWrap from "./node_modules/yt-dlp-wrap/dist/index";
 import { spawn } from "child_process";
 import { createSocket, Socket } from "dgram";
-import { ChildProcessWithoutNullStreams } from "node:child_process";
-
+import { ChildProcess, ChildProcessWithoutNullStreams, exec } from "node:child_process";
 
 
 class Media {
@@ -18,13 +17,14 @@ class Media {
   logs: boolean;
   playing: boolean;
   // function returning a process handle
-  ffmpeg: ChildProcessWithoutNullStreams;
+  ffmpeg: ChildProcess;
 
   constructor(logs=false, port=5030) {
     this.track = new MediaStreamTrack({ kind: "audio" });
     this.socket = createSocket("udp4");
     this.socket.bind(port);
-    this.socket.addListener("message", (data) => {
+    this.socket.addListener("message", (data, rinfo) => {
+      this.logs ? console.log(`Received ${data.length} bytes from ${rinfo.address}:${rinfo.port}`) : null;
       this.track?.writeRtp(data);
     });
     this.emitter = new EventEmitter();
@@ -66,18 +66,24 @@ class Media {
     return this.emitter.emit(event, data);
   }
 
-  spawnFFmpeg(input?, port = 5030): ChildProcessWithoutNullStreams {
+  spawnFFmpeg(input?, port = 5030): ChildProcess {
     this.playing = true;
-    const ffmpeg_proc = spawn("ffmpeg", [
-      "-re", "-i", input, "-map", "0:a", "-b:a", "48k", "-maxrate", "48k", "-c:a", "libopus", "-f", "rtp", "rtp://127.0.0.1:5030"
-    ]).on("close", (code) => {
-      if (code == 0) {
-        this.playing = false;
-        this.emitter.emit("end");
-        console.log("FFmpeg exited with code 0");
+    const ffmpeg_proc = exec("ffmpeg " + this.createFfmpegArgs("00:00:00", input).join(" "), (err, stdout, stderr) => {
+      if (err) {
+        this.logs ? console.log(err) : null;
+        return;
       }
     })
-
+    .on("close", (code) => {
+      if (code == 0) {
+        this.emitter.emit("finish");
+        this.emitter.emit("end");
+        console.log("FFmpeg exited with code 0 - spawnFFmpeg");
+      }
+    })
+    .on("error", (err) => {
+      console.log(err);
+    })
     return ffmpeg_proc;
     // after the transcoding is done, set the playing flag to false
   } 
@@ -90,8 +96,7 @@ class Media {
   }
   playFile(path) {
     if (!path) throw "You must specify a file to play!";
-    const stream = fs.createReadStream(path);
-    stream.pipe(this.ffmpeg.stdin);
+    this.spawnFFmpeg(path);
   }
  /*  writeStreamChunk(chunk) {
     if (!chunk) throw "You must pass a chunk to be written into the stream";
@@ -219,8 +224,11 @@ class MediaPlayer {
   async playYTStream(url) {
     if (!url) throw "You must specify a youtube stream to play!";
     if (!this.media.track) this.media.track = new MediaStreamTrack({ kind: "audio" });
-
-    this.media.spawnFFmpeg(await this.getYouTubeStream(url));
+    const streamableUrl = await this.getYouTubeStream(url);
+    console.log(streamableUrl);
+    // enclose the url in quotes to prevent errors
+    const url_quoted = `"${streamableUrl}"`;
+    this.media.spawnFFmpeg(url_quoted);
   }
 
   playStream(stream) {
@@ -236,56 +244,16 @@ class MediaPlayer {
 
 
     // ffmpeg stuff
-    this.setupFmpeg();
+    //this.setupFmpeg();
+    this.media.spawnFFmpeg(stream);
 
     console.log("Stream ended");
     this.media.playing = false;
     this.emit("end");
   }
-  setupFmpeg() {
-    this.media.ffmpeg.stderr.on("data", (chunk) => {
-      console.log("err", Buffer.from(chunk).toString());
-      chunk = Buffer.from(chunk).toString(); // parse to string
-      if (chunk.includes("time")) {  // get the current seek pos
-        chunk = chunk.split(" ").map(el => el.trim()); // split by spaces and trim the items; useful for next step
-        chunk = chunk.filter(el => el.startsWith("time")); // find the element indicating the time
-        chunk = chunk.join("").split("=")[1]; // extract the timestamp
-        if (!chunk) return;
-        this.currTime = chunk;
-        if (this.finishTimeout) clearTimeout(this.finishTimeout);
-        this.finishTimeout = setTimeout(() => { // TODO: I REALLY need a better way to do this
-          if (this.streamFinished) {
-            this.playing = false;
-            this.disconnect(false);
-            this.emit("finish");
-          }
-        }, 2000);
-      } else if (chunk.trim().toLowerCase().includes("duration")) { // get the duration in seconds
-        chunk = chunk.trim().toLowerCase(); // clean it up a bit
-        chunk = chunk.split("\n").map(el => el.trim()).find(el => el.includes("duration")); // find the element that displays the duration
-        chunk = chunk.split(",")[0].trim(); // get the duration part out of the line and clean i up
-        chunk = chunk.split(":").slice(1).join(":").trim(); // remove the "duration: " from the start
-        if (this.logs) console.log("Audio duration: ", MediaPlayer.timestampToSeconds(chunk));
-      }
-    });
-    this.media.ffmpeg.stdout.on("data", (chunk) => {
-      console.log("OUT", Buffer.from(chunk().toString()));
-    });
-    this.media.ffmpeg.stdout.on("end", () => {
-      this.playing = false;
-      console.log("finished");
-      this.media.emitter.emit("finish");
-    });
-    this.media.ffmpeg.stdout.on("readable", () => {
-      if (this.logs) console.log("readable")
-    });
-    this.media.ffmpeg.stdin.on("error", (e) => {
-      console.log("Media; ffmpeg; stdin: ");
-      throw e
-    });
-  }
+  
   playFile(path) {
-    return this.playStream(fs.createReadStream(path));
+    return this.playStream(path);
   }
 }
 
